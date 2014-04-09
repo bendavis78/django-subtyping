@@ -10,13 +10,11 @@ class BaseType(ModelBase):
             return super_new(cls, name, bases, attrs)
         new_class = super_new(cls, name, bases, attrs)
 
-        if not new_class._meta.abstract:
+        if new_class._meta.abstract:
+            opts = attrs.pop('Subtyping', None)
+            new_class.add_to_class('_subtyping', SubtypingOptions(opts))
             return new_class
 
-        opts = attrs.pop('Subtyping', None)
-        new_class.add_to_class('_subtyping', SubtypingOptions(opts))
-
-        # add to parent's ancestors list
         for base in bases:
             if hasattr(base, '_subtyping'):
                 base._subtyping._ancestors.append(new_class)
