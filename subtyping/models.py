@@ -36,22 +36,14 @@ class SubtypingOptions(object):
         self._ancestors = []
         self._subtypes = []
         self._base_type = None
-        self.default_ct_field = None
-        self.default_fk_field = None
 
     def contribute_to_class(self, cls, name):
         cls._subtyping = self
         self.model = cls
-        self.default_ct_field = '{}_type'.format(self.model._meta.model_name)
-        self.default_fk_field = '{}_id'.format(self.model._meta.model_name)
 
         # apply overrides from meta
         if self.meta:
             self._subtypes = getattr(self.meta, 'subtypes', self.subtypes)
-            self.default_ct_field = getattr(self.meta, 'default_ct_field',
-                                            self.default_ct_field)
-            self.default_fk_field = getattr(self.meta, 'default_fk_field',
-                                            self.default_fk_field)
 
     @property
     def subtypes(self):
