@@ -57,10 +57,8 @@ class BaseTypeModel(models.Model):
 
     @classmethod
     def get_subtypes(cls):
-        subtypes = cls._subtyping.subtypes
-        names = (m._meta.model_name.lower() for m in subtypes)
-        return ContentType.objects.filter(app_label=cls._meta.app_label,
-                                          model__in=names)
+        types = ContentType.objects.get_for_models(*cls._subtyping.subtypes)
+        return types.values()
 
     class Meta:
         abstract = True

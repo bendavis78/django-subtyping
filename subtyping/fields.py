@@ -1,5 +1,6 @@
 from django.core import exceptions
 from django.db import models
+from django.db.models.signals import class_prepared
 from django.db.models.sql.datastructures import Col
 from django.utils import six
 from django.contrib.contenttypes.fields import (GenericForeignKey,
@@ -14,19 +15,21 @@ class BaseTypeForeignKey(GenericForeignKey):
     for each subtype of the given base model model in the form of a
     GenericRelation field on those models.
     """
-    def __init__(self, base_model, related_name=None, ct_field=None,
-                 fk_field=None, blank=False, null=False, db_index=True):
+    def __init__(self, base_model, related_name=None, query_prefix=None,
+                 ct_field=None, fk_field=None, blank=False, null=False,
+                 db_index=True):
         self.base_model = base_model
         self.ct_field = ct_field
         self.fk_field = fk_field
         self.related_name = related_name
+        self.query_prefix = query_prefix
         self.blank = blank
         self.null = null
         self.db_index = db_index
         super(BaseTypeForeignKey, self).__init__(ct_field, fk_field)
 
     def get_type_choices(self):
-        return {'pk__in': self.base_model.get_subtypes()}
+        return {'pk__in': (t.pk for t in self.base_model.get_subtypes())}
 
     def contribute_to_class(self, model, name):
         super(BaseTypeForeignKey, self).contribute_to_class(model, name)
@@ -41,8 +44,6 @@ class BaseTypeForeignKey(GenericForeignKey):
         if model._meta.abstract:
             return
 
-        # add the fields once the base model is prepared so that we can acccess
-        # base_mode._meta.pk (needed to create the fk_field).
         field_kwargs = {
             'blank': self.blank,
             'null': self.null,
@@ -71,15 +72,35 @@ class BaseTypeForeignKey(GenericForeignKey):
         if not self.related_name:
             self.related_name = self.model._meta.model_name + '_set'
 
-        # Add generic relation to subtypes
-        for type in self.base_model._subtyping.subtypes:
+        self.in_loop = False
+
+        # Add the generic relation for this field to each subtype. We add a
+        # signal handler for subtypes that have not been prepared yet.
+        def add_generic_relation(sender, **kwargs):
+            opts = sender._meta
+
+            if not issubclass(sender, self.base_model) or opts.abstract:
+                return
+
+            if self.query_prefix:
+                related_query_name = self.query_prefix + opts.model_name
+            else:
+                related_query_name = opts.model_name
+
             rel = GenericRelation(
                 model,
                 content_type_field=self.ct_field,
                 object_id_field=self.fk_field,
-                related_query_name=type._meta.model_name
+                related_query_name=related_query_name
             )
-            type.add_to_class(self.related_name, rel)
+            sender.add_to_class(self.related_name, rel)
+
+        self.in_loop = True
+        for subtype in self.base_model._subtyping.subtypes:
+            add_generic_relation(subtype)
+        self.in_loop = False
+
+        class_prepared.connect(add_generic_relation, weak=False)
 
     def _get_base_pk_field(self):
         if not hasattr(self, '_base_pk_field'):
