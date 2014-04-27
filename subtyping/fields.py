@@ -1,11 +1,12 @@
-from django.core import exceptions
 from django.db import models
-from django.db.models.signals import class_prepared
-from django.db.models.sql.datastructures import Col
+from django.db.models.constants import LOOKUP_SEP
 from django.utils import six
 from django.contrib.contenttypes.fields import (GenericForeignKey,
                                                 GenericRelation)
 from django.contrib.contenttypes.models import ContentType
+
+from subtyping import lookups
+from subtyping.models import subtyping_class_prepared
 
 
 class BaseTypeForeignKey(GenericForeignKey):
@@ -15,17 +16,19 @@ class BaseTypeForeignKey(GenericForeignKey):
     for each subtype of the given base model model in the form of a
     GenericRelation field on those models.
     """
-    def __init__(self, base_model, related_name=None, query_prefix=None,
-                 ct_field=None, fk_field=None, blank=False, null=False,
+
+    def __init__(self, base_model, related_name=None, ct_field=None,
+                 query_prefix=None, fk_field=None, blank=False, null=False,
                  db_index=True):
         self.base_model = base_model
         self.ct_field = ct_field
         self.fk_field = fk_field
         self.related_name = related_name
-        self.query_prefix = query_prefix
+        self.query_prefix = None
         self.blank = blank
         self.null = null
         self.db_index = db_index
+        self._subtype_rel_map = {}
         super(BaseTypeForeignKey, self).__init__(ct_field, fk_field)
 
     def get_type_choices(self):
@@ -82,17 +85,19 @@ class BaseTypeForeignKey(GenericForeignKey):
             if not issubclass(sender, self.base_model) or opts.abstract:
                 return
 
-            if self.query_prefix:
-                related_query_name = self.query_prefix + opts.model_name
-            else:
-                related_query_name = opts.model_name
+            prefix = self.query_prefix or (name + '_')
+            query_name = opts.model_name
+            if hasattr(sender, '_subtyping'):
+                query_name = sender._subtyping.get_query_name()
+            query_name = prefix + query_name
 
             rel = GenericRelation(
                 model,
                 content_type_field=self.ct_field,
                 object_id_field=self.fk_field,
-                related_query_name=related_query_name
+                related_query_name=query_name
             )
+            self._subtype_rel_map[query_name] = rel
             sender.add_to_class(self.related_name, rel)
 
         self.in_loop = True
@@ -100,7 +105,7 @@ class BaseTypeForeignKey(GenericForeignKey):
             add_generic_relation(subtype)
         self.in_loop = False
 
-        class_prepared.connect(add_generic_relation, weak=False)
+        subtyping_class_prepared.connect(add_generic_relation, weak=False)
 
     def _get_base_pk_field(self):
         if not hasattr(self, '_base_pk_field'):
@@ -122,42 +127,18 @@ class BaseTypeForeignKey(GenericForeignKey):
 
         return self._base_pk_field
 
-    def get_lookup_constraint(self, constraint_class, alias, targets, sources,
-                              lookups, raw_value):
+    def get_lookup(self, lookup):
+        parts = lookup.split(LOOKUP_SEP)
+        if len(parts) == 1:
+            if parts[0] == 'exact':
+                return lookups.BaseTypeForeignKeyExact
+            if parts[0] == 'isnull':
+                return lookups.BaseTypeForeignKeyIsNull
 
-        from django.db.models.sql.where import AND
-        root_constraint = constraint_class()
-        assert len(targets) == len(sources)
-        if len(lookups) > 1:
-            raise exceptions.FieldError(
-                'Relation fields do not support nested lookups')
-        lookup_type = lookups[0]
+    def get_transform(self, lookup):
+        #return lookups.BaseTypeRelatedFieldTransform
+        return None
 
-        source = target = sources[0].model._meta.get_field_by_name(
-            self.fk_field)[0]
-
-        if lookup_type == 'isnull':
-            return source.get_lookup_constraint(constraint_class, alias,
-                                                targets, sources)
-
-        elif lookup_type == 'exact':
-            if not isinstance(raw_value, self.base_model):
-                raise ValueError("{0!r} is not an instance of {1!r}".format(
-                                 raw_value, self.base_model))
-
-            ct = ContentType.objects.get_for_model(raw_value)
-
-            ct_source = ct_target = source.model._meta.get_field_by_name(
-                self.ct_field)[0]
-            ct_lookup_class = ct_source.get_lookup(lookup_type)
-            root_constraint.add(ct_lookup_class(
-                Col(alias, ct_target, ct_source), ct.pk), AND)
-
-            target_lookup_class = target.get_lookup(lookup_type)
-            root_constraint.add(target_lookup_class(
-                Col(alias, target, source), raw_value.pk), AND)
-
-        else:
-            raise TypeError('Invalid lookup {0} for BaseTypeForeignKey'
-                            .format(lookup_type))
-        return root_constraint
+    @property
+    def column(self):
+        return None
