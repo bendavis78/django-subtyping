@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.db import models
 from django.db.models.constants import LOOKUP_SEP
 from django.utils import six
@@ -19,7 +20,7 @@ class BaseTypeForeignKey(GenericForeignKey):
 
     def __init__(self, base_model, related_name=None, ct_field=None,
                  query_prefix=None, fk_field=None, blank=False, null=False,
-                 db_index=True):
+                 limit_types_to=None, db_index=True):
         self.base_model = base_model
         self.ct_field = ct_field
         self.fk_field = fk_field
@@ -28,11 +29,22 @@ class BaseTypeForeignKey(GenericForeignKey):
         self.blank = blank
         self.null = null
         self.db_index = db_index
+        self.limit_types_to = limit_types_to
         self._subtype_rel_map = {}
         super(BaseTypeForeignKey, self).__init__(ct_field, fk_field)
 
     def get_type_choices(self):
-        return {'pk__in': (t.pk for t in self.base_model.get_subtypes())}
+        subtypes = []
+        if self.limit_types_to:
+            for model in self.limit_types_to:
+                if isinstance(model, six.string_types):
+                    model = apps.get_model(model)
+                ct = ContentType.objects.get_for_model(model)
+                subtypes.append(ct)
+        else:
+            subtypes = self.base_model.get_subtypes()
+
+        return {'pk__in': (t.pk for t in subtypes)}
 
     def contribute_to_class(self, model, name):
         super(BaseTypeForeignKey, self).contribute_to_class(model, name)
