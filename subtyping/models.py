@@ -18,16 +18,17 @@ class BaseType(ModelBase):
         opts = SubtypingOptions(subtyping)
 
         if not new_class._meta.abstract:
-            # This is a concrete subtype
-            base_types = [b for b in bases if isinstance(b, BaseType)
-                          and b._meta.abstract]
+            # This is a concrete subtype, we need to determine its base type
+            if not opts.base_type:
+                base_types = [b for b in bases if isinstance(b, BaseType)
+                              and b._meta.abstract]
+                if len(base_types) > 1:
+                    msg = ("BaseTypeModel subclasses may not inherit "
+                           "from more than one BaseTypeModel abstract "
+                           "class")
+                    raise TypeError(msg)
+                opts.base_type = base_types[0]
 
-            if len(base_types) > 1:
-                raise TypeError("BaseTypeModel subclasses may not inherit "
-                                "from more than one BaseTypeModel abstract "
-                                "class")
-
-            opts.base_type = base_types[0]
             opts.base_type._subtyping.ancestors.append(new_class)
 
         new_class.add_to_class('_subtyping', opts)
@@ -40,7 +41,7 @@ class BaseType(ModelBase):
 class SubtypingOptions(object):
     def __init__(self, meta):
         self.meta = meta
-        self.base_type = None
+        self.base_type = getattr(meta, 'base_type', None)
         self.query_name = None
         self.ancestors = []
         self._subtypes = []
