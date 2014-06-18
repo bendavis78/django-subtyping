@@ -20,7 +20,7 @@ class BaseTypeForeignKey(GenericForeignKey):
 
     def __init__(self, base_model, related_name=None, ct_field=None,
                  query_prefix=None, fk_field=None, blank=False, null=False,
-                 limit_types_to=None, db_index=True):
+                 limit_types_to=None, db_index=True, verbose_name=None):
         self.base_model = base_model
         self.ct_field = ct_field
         self.fk_field = fk_field
@@ -30,6 +30,7 @@ class BaseTypeForeignKey(GenericForeignKey):
         self.null = null
         self.db_index = db_index
         self.limit_types_to = limit_types_to
+        self.verbose_name = verbose_name
         self._subtype_rel_map = {}
         super(BaseTypeForeignKey, self).__init__(ct_field, fk_field)
 
@@ -48,6 +49,11 @@ class BaseTypeForeignKey(GenericForeignKey):
 
     def contribute_to_class(self, model, name):
         super(BaseTypeForeignKey, self).contribute_to_class(model, name)
+        if not self.name:
+            self.name = name
+        self.attname = self.name
+        if self.verbose_name is None and self.name:
+            self.verbose_name = self.name.replace('_', ' ')
 
         if not self.ct_field:
             self.ct_field = '{}_type'.format(name)
@@ -63,7 +69,7 @@ class BaseTypeForeignKey(GenericForeignKey):
             'blank': self.blank,
             'null': self.null,
             'db_index': self.db_index,
-            'editable': False
+            'editable': False,
         }
         ct_related_name = self.ct_field + '_' + model._meta.model_name
 
