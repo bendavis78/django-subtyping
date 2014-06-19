@@ -44,6 +44,8 @@ class SubtypingOptions(object):
         self.base_type = getattr(meta, 'base_type', None)
         self.query_name = None
         self.ancestors = []
+        self.allow_generic_relations = getattr(
+            meta, 'allow_generic_relations', True)
         self._subtypes = []
 
     def contribute_to_class(self, cls, name):

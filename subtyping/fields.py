@@ -93,20 +93,22 @@ class BaseTypeForeignKey(GenericForeignKey):
         if not self.related_name:
             self.related_name = self.model._meta.model_name + '_set'
 
-        self.in_loop = False
-
         # Add the generic relation for this field to each subtype. We add a
         # signal handler for subtypes that have not been prepared yet.
         def add_generic_relation(sender, **kwargs):
+            subtyping_opts = getattr(sender, '_subtyping', None)
             opts = sender._meta
+
+            if not subtyping_opts.allow_generic_relations:
+                return
 
             if not issubclass(sender, self.base_model) or opts.abstract:
                 return
 
             prefix = self.query_prefix or (name + '_')
             query_name = opts.model_name
-            if hasattr(sender, '_subtyping'):
-                query_name = sender._subtyping.get_query_name()
+            if subtyping_opts:
+                query_name = subtyping_opts.get_query_name()
             query_name = prefix + query_name
 
             rel = GenericRelation(
@@ -118,10 +120,8 @@ class BaseTypeForeignKey(GenericForeignKey):
             self._subtype_rel_map[query_name] = rel
             sender.add_to_class(self.related_name, rel)
 
-        self.in_loop = True
         for subtype in self.base_model._subtyping.subtypes:
             add_generic_relation(subtype)
-        self.in_loop = False
 
         subtyping_class_prepared.connect(add_generic_relation, weak=False)
 
